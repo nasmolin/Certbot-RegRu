@@ -1,0 +1,166 @@
+#--------------------------------- 
+# Use "--tags push" for push wildcard cert to webservers only.
+# Running without tags will perform certbot request certificate script.
+# Also u need to set {{var.subdomain_domain}} var before use.
+#---------------------------------
+---
+- name: "#=========== 1.0 Pull scripts and prepare environment"
+  hosts: "{{groups['ansible_nodes'][0]}}"
+  tasks:
+    - name: "#=== 1.1 Copy id_rsa"
+      become: false
+      tags:
+        - push      
+      copy:
+        dest: "/home/ansible/.ssh/id_rsa"
+        content: "{{ lookup('file', '../secret/ansible.key') }}"
+        mode: 0700
+        owner: ansible
+    - name: "#=== 1.2 Create /certbot-regru directory"
+      become: true
+      tags:
+        - push      
+      file:
+        path: /certbot-regru
+        state: directory
+        owner: ansible
+        mode: 0771
+    - name: "#=== 1.3 Clone a git repository"
+      become: true
+      become_user: ansible
+      tags:
+        - push
+      git:
+        repo: "git@github.com:nasmolin/Certbot-RegRu.git"
+        dest: /certbot-regru
+        clone: yes
+        update: yes
+        accept_hostkey: true
+        force: true
+    - name: "#=== 1.4 Set reg.ru username"
+      lineinfile:
+        path: "/certbot-regru/api-settings.sh"
+        line: USERNAME="{{ regru_username }}"
+    - name: "#=== 1.5 set reg.ru password"
+      lineinfile:
+        path: "/certbot-regru/api-settings.sh"
+        line: PASSWORD="{{ regru_password }}"
+    - name: "#=== 1.6 fix permissions"
+      become: true
+      file:
+        path: /certbot-regru
+        owner: ansible
+        group: ansible
+        mode: 0771
+        recurse: true
+- name: "#=========== 2.0 Run scripts(update certs)"
+  hosts: "{{groups['ansible_nodes'][0]}}"
+  tasks:    
+    - name: "#=== 2.1 Request certs"
+      become: true
+      shell: |
+        sudo ./certbot-request.sh > log
+      args: 
+        chdir: /certbot-regru
+        executable: /bin/bash
+    - name: "#=== 2.2.1 Read log"
+      command: cat log chdir=/certbot-regru
+      register: log_certbot
+    - name: "#=== 2.2.2 Stdout log"
+      debug:
+        msg: "{{log_certbot.stdout}}"
+- name: "#=========== 3.0 Copy new certs to workdir"
+  hosts: "{{groups['ansible_nodes'][0]}}"
+  become: true
+  tags: 
+    - push
+  tasks:
+    - name: "#=== 3.1 Copy fullchain.pem to workdir"
+      copy: 
+        src: "/etc/letsencrypt/live/{{var.subdomain_domain}}/fullchain.pem" 
+        dest: /certbot-regru
+        force: true
+        remote_src: true
+    - name: "#=== 3.2 Copy privkey.pem to workdir"
+      copy: 
+        src: /etc/letsencrypt/live/{{var.subdomain_domain}}/privkey.pem
+        dest: /certbot-regru
+        force: true
+        remote_src: true
+- name: "#=========== 4.0 Create directorys tree on remote servers"
+  hosts: web_servers
+  become: true
+  tags:
+    - push
+  tasks:
+    - name: "#=== 4.1 Create /wildcard-certs"
+      file:
+        path: /wildcard-certs
+        state: directory
+        owner: ansible
+        mode: 0771
+    - name: "#=== 4.2 Create dir/wildcard-certs/bak/"
+      file:
+        path: /wildcard-certs/bak
+        state: directory
+        owner: ansible
+        mode: 0771
+    - name: "#=== 4.3 Create dir /wildcard-certs/actual"
+      file:
+        path: /wildcard-certs/actual
+        state: directory
+        owner: ansible
+        mode: 0771
+    - name: "#=== 4.4 Create dir /wildcard-certs/bak/env.date"
+      file:
+        path: "/wildcard-certs/bak/{{ ansible_date_time.date }}"
+        state: directory
+        owner: ansible
+        mode: 0771
+      register: bakdir_res
+    - name: "#=== 4.5 Stdout /wildcard-certs/bak/env.date"
+      debug:
+        msg: "Directory path is {{ bakdir_res.path }}"    
+- name: "#=========== 5.0 Move old/expired certs to newly created dir"  
+  hosts: web_servers
+  become: true
+  tags:
+    - push
+  tasks:    
+    - name: "#=== 5.1 Check fullchain.pem in actual dir and move it to bak dir"
+      command: "mv /wildcard-certs/actual/fullchain.pem {{bakdir_res.path}}/fullchain.pem-{{ansible_date_time.time}}"
+      args:
+        removes: /wildcard-certs/actual/fullchain.pem 
+    - name: "#=== 5.2 Check privkey.pem in actual dir and move it to bak dir"
+      command: "mv /wildcard-certs/actual/privkey.pem {{bakdir_res.path}}/privkey.pem-{{ansible_date_time.time}}"
+      args:
+        removes: /wildcard-certs/actual/privkey.pem 
+- name: "#=========== 6.0 Copy new wildcard certs to remote servers"
+  hosts: web_servers
+  become: true
+  become_user: ansible  
+  tags:
+    - push  
+  tasks:    
+    - name: "#=== 6.1 Push wildcard fullchain.pem to servers"
+      synchronize:
+        src: /certbot-regru/fullchain.pem
+        dest: /wildcard-certs/actual
+        mode: push
+      delegate_to: "{{groups['ansible_nodes'][0]}}"
+    - name: "#=== 6.2 Push wildcard privkey.pem to servers"
+      synchronize:
+        src: /certbot-regru/privkey.pem
+        dest: /wildcard-certs/actual
+        mode: push
+      delegate_to: "{{groups['ansible_nodes'][0]}}"
+- name: "#=========== 7.0 Configure nginx to use wildcard certs"
+  hosts: web_servers
+  become: true
+  tags:
+    - push
+  tasks:    
+    - name: "#=== 7.1 Reload nginx.service"
+      service: 
+        name: nginx
+        state: reloaded
