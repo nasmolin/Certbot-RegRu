@@ -4,17 +4,23 @@
 # All rights reserved.
 #
 # This software may be modified and distributed under the terms
-# of the BSD license.  See the LICENSE file for details.
+# of the BSD license.  See the LICENSE file for details
 
-############################################################
-# Domain settings
-DOMAIN=example.com
-EMAIL=letsencrypt@${DOMAIN}
-############################################################
+#---------------------------------
+# Reg.ru API creds:
+#---------------------------------
+USERNAME=""
+PASSWORD=""
 
-############################################################
-# GoDaddy API Credentials
-GODADDY_API_KEY=""
-GODADDY_API_SECRET=""
-GODADDY_URL="https://api.godaddy.com/"
-############################################################
+#---------------------------------
+# Let's Encrypt registration
+#---------------------------------
+EMAIL="mail@example.com"
+
+#---------------------------------
+# Domain info
+#---------------------------------
+DOMAIN="domain.com"
+SUBDOMAIN="subdomain"
+TXT_SUBDOMAIN="_acme-challenge."$SUBDOMAIN
+
