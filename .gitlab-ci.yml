@@ -1,0 +1,69 @@
+stages:
+  - Build
+  - Lint
+  - Web-Servers
+
+default:
+  tags:
+    - linux-docker
+  image: 
+    name: ${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}
+
+build:
+  stage: Build
+  image: 
+    name: gcr.io/kaniko-project/executor:v1.9.1-debug
+    entrypoint: [""]
+  before_script:
+    - echo "{\"auths\":{\"${CI_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${CI_REGISTRY_USER}" "${CI_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - cat /kaniko/.docker/config.json
+    - echo "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+  script:
+    - /kaniko/executor
+      --context .
+      --dockerfile Dockerfile
+      --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+  when: always
+
+.prepare:
+  before_script:
+    - export ANSIBLE_HOST_KEY_CHECKING=False
+    - export ANSIBLE_FORCE_COLOR=true
+    - export REGRU_USERNAME=$REGRU_USERNAME
+    - export REGRU_PASSWORD=$REGRU_PASSWORD
+    - ansible --version
+    - ansible-lint --version
+    - echo "{\"ansible_user\":\"$user\",\"ansible_ssh_pass\":\"$password\",\"ansible_sudo_pass\":\"$password\"}" > args
+    - mkdir secret
+    - echo "$password" > secret/user.key
+    - chmod 400 secret/user.key
+
+lint:
+  stage: Lint
+  extends: .prepare
+  script:
+    - ansible --version
+    - ansible-lint -v playbooks/*.yml
+    - ansible-playbook --syntax-check playbooks/*.yml
+  when: manual
+
+ #--------------
+# web-certs-update.yml
+#--------------
+Requests new wilcard certs and deploy it to servers:
+  stage: Web-Servers
+  extends: .prepare
+  script:
+    - ansible-playbook playbooks/web-certs-update.yml --user user --private-key secret/user.key --extra-vars "regru_username=$REGRU_USERNAME regru_password=$REGRU_PASSWORD"
+  when: manual
+
+#--------------
+# web-certs-update.yml
+#--------------
+Pull(only) wilcard certs to servers:
+  stage: Web-Servers
+  extends: .prepare
+  script:
+    - ansible-playbook playbooks/web-certs-update.yml --user ansible --private-key secret/user.key --tags pull
+  when: manual
+
