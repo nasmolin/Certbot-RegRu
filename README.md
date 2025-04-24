@@ -1,4 +1,10 @@
+> ⚠️ **DEPRECATED PROJECT**  
+> This project is no longer maintained.
+> Please use the updated Python version instead: [Certbot-RegRu-Pyton](https://github.com/nasmolin/Certbot-Regru-Python)
+
 # Certbot Regru Wildcard scripts
+
+use python version
 
 These scripts allow the creation of Let's Encrypt wildcard certificates on Regru managed domains. Certificates created using these scripts will have the Common Name (CN) set to the wildcard domain (e.g. "*.subdomain.example.com").
 
